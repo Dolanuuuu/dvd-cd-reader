@@ -1,0 +1,9 @@
+rushs/
+*.mp4
+*.yuv
+server.log
+.env
+__pycache__/
+magica-src/.build/
+magica-src/build/
+.DS_Store

@@ -1,0 +1,14 @@
+services:
+  vhs-capture:
+    build: .
+    restart: unless-stopped
+    ports: ["8790:8790"]
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/snd:/dev/snd
+    environment:
+      VHS_PASSWORD: ${VHS_PASSWORD:?définis VHS_PASSWORD dans .env}
+      VHS_AUDIO_DEVICE: ${VHS_AUDIO_DEVICE:-hw:1}
+      VHS_STD: pal
+    volumes:
+      - ./rushs:/rushs
