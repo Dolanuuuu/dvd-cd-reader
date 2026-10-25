@@ -6,4 +6,6 @@ server.log
 __pycache__/
 magica-src/.build/
 magica-src/build/
+magica-src/magica.exe
 .DS_Store
+rec.sh

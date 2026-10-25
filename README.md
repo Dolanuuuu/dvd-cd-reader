@@ -8,13 +8,25 @@ Prérequis partout : **Python 3.10+** et **ffmpeg**. Aucune dépendance pip.
 La vidéo passe par `magica` (pilote libusb em28xx, issu de [kode54/ManzanaMagica](https://github.com/kode54/ManzanaMagica) + ID `eb1a:5043` ajouté), car macOS n'a pas de pilote pour ces boîtiers.
 
 ## Windows
-1. Installer le **pilote du boîtier** (CD/site du fabricant, ou pilote générique « EM2860 / USB 2.0 Video Capture »). Il doit apparaître dans le Gestionnaire de périphériques → *Contrôleurs son, vidéo et jeu* / *Périphériques d'imagerie*.
-2. `winget install Python.Python.3.12 Gyan.FFmpeg`
-3. Double-clic sur `start.bat`.
+Deux modes, choisis automatiquement : **magica** si `magica.exe` est présent (par défaut), sinon le pilote du fabricant.
 
-Le boîtier est détecté automatiquement (DirectShow). Sinon, voir les noms via http://localhost:8790/api/devices et forcer :
-`set VHS_VIDEO_DEVICE=Nom exact` et `set VHS_AUDIO_DEVICE=Nom exact` avant `python app.py`.
-Ne pas utiliser `magica` sous Windows (il faudrait remplacer le pilote par WinUSB via Zadig).
+### Mode magica (recommandé, même procédé que sur Mac)
+1. `winget install Python.Python.3.12 Gyan.FFmpeg`
+2. **Zadig** (https://zadig.akeo.ie), une seule fois :
+   - *Options → List All Devices*
+   - choisir **Masster AVCap (Interface 0)** — surtout pas le périphérique entier, sinon le son du boîtier disparaît
+   - pilote cible **WinUSB** → *Replace Driver*
+3. Double-clic sur `start.bat` → http://localhost:8790
+
+La vidéo passe par `magica.exe` (relayée à ffmpeg en TCP local), le son par le périphérique audio USB du boîtier (DirectShow).
+Si le son n'est pas trouvé : `/api/devices` liste les noms, puis `set VHS_AUDIO_DEVICE=Nom exact`.
+Pour revenir en arrière : Gestionnaire de périphériques → le boîtier → *Désinstaller le pilote*, puis débrancher/rebrancher.
+
+### Mode pilote du fabricant
+Si le boîtier a un pilote Windows qui fonctionne (il apparaît comme caméra / périphérique de capture) : `set VHS_WIN_MODE=dshow` avant `python app.py`.
+Détection automatique du nom ; sinon `set VHS_VIDEO_DEVICE=Nom exact`.
+
+`magica.exe` est compilé par mingw-w64 (workflow GitHub `magica-windows.yml`, ou `make -f Makefile.win` dans `magica-src/`).
 
 ## Serveur Linux (boîtier branché sur le serveur)
 Le noyau Linux gère nativement les em28xx (`/dev/video0` + carte ALSA).
@@ -37,6 +49,7 @@ Pour Internet, passer derrière un reverse proxy HTTPS (Traefik/Caddy) ou un VPN
 | `VHS_PASSWORD` | — | requis hors localhost |
 | `VHS_OUT_DIR` | `./rushs` | dossier des MP4 |
 | `VHS_BACKEND` | auto | `macos` / `windows` / `linux` |
+| `VHS_WIN_MODE` | `magica` | `dshow` = pilote du fabricant |
 | `VHS_STD` | `pal` | `pal` ou `ntsc` |
 | `VHS_INPUT` | `composite` | `svideo` (macOS) |
 | `VHS_VIDEO_DEVICE` / `VHS_AUDIO_DEVICE` | auto | nom DirectShow, `/dev/videoN`, `hw:N` |
@@ -45,7 +58,7 @@ Le boîtier ne peut être utilisé que par un programme à la fois : l'aperçu s
 
 ## Recompiler magica (macOS)
 `cd magica-src && swift build --product magica && cp .build/debug/magica ..`
-Fork de [kode54/ManzanaMagica](https://github.com/kode54/ManzanaMagica) avec : ID `eb1a:5043` (Masster AVCap) ajouté, `HAVE_PIPE2` désactivé dans la libusb embarquée (absent sur macOS).
+Fork de [kode54/ManzanaMagica](https://github.com/kode54/ManzanaMagica) avec : ID `eb1a:5043` (Masster AVCap) ajouté, `HAVE_PIPE2` désactivé dans la libusb embarquée (absent sur macOS), `--out -` (stdout) et portage Windows (horloge, nom de thread).
 
 ## Licence
 GPL-2.0-only (comme ManzanaMagica et les pilotes Linux em28xx dont il est porté).

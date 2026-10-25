@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #include "magica.h"
 
@@ -25,7 +29,7 @@ static void usage(void)
 		"  status                     show lock/standard twice a second until ^C\n"
 		"  capture [options]          stream video, print field statistics\n"
 		"      --seconds N            stop after N seconds (default: until ^C)\n"
-		"      --out FILE             write woven YUYV frames (ffplay -f rawvideo\n"
+		"      --out FILE|-             write woven YUYV frames (ffplay -f rawvideo\n"
 		"                             -pixel_format yuyv422 -video_size 720x480 FILE)\n"
 		"      --std ntsc|pal|pal-m|pal-n|ntsc-j|secam|auto   (default auto)\n"
 		"      --input composite|svideo\n");
@@ -175,7 +179,15 @@ static int cmd_capture(int argc, char **argv)
 	struct cap c = { .width = magica_width(d), .height = magica_height(d) };
 
 	if (out) {
-		c.out = fopen(out, "wb");
+		if (!strcmp(out, "-")) {
+			/* "-" = stdout, for piping into ffmpeg (Windows has no mkfifo) */
+#ifdef _WIN32
+			_setmode(_fileno(stdout), _O_BINARY);
+#endif
+			c.out = stdout;
+		} else {
+			c.out = fopen(out, "wb");
+		}
 		if (!c.out) {
 			perror(out);
 			return 1;
@@ -210,7 +222,8 @@ static int cmd_capture(int argc, char **argv)
 	magica_stop(d);
 	magica_close(d);
 	if (c.out) {
-		fclose(c.out);
+		if (c.out != stdout)
+			fclose(c.out);
 		fprintf(stderr, "wrote %u frames to %s\n", c.frames, out);
 	}
 	return 0;

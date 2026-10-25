@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# magica.exe (Windows x64), cross-compiled with mingw-w64 against a static libusb >= 1.0.27
+#   make -f Makefile.win LIBUSB=/chemin/vers/libusb-win   (contient include/libusb-1.0 et lib/libusb-1.0.a)
+CC      = x86_64-w64-mingw32-gcc
+LIBUSB ?= ../libusb-win
+CFLAGS  = -O2 -std=gnu11 -Wall -Isrc/include -Isrc/core -I$(LIBUSB)/include/libusb-1.0
+LDFLAGS = -static
+LDLIBS  = $(LIBUSB)/lib/libusb-1.0.a -lpthread
+
+SRCS := $(wildcard src/cli/*.c) $(wildcard src/core/*.c)
+
+magica.exe: $(SRCS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS) $(LDLIBS)
+
+clean:
+	rm -f magica.exe
+.PHONY: clean

@@ -1,0 +1,18 @@
+name: magica.exe (Windows)
+on:
+  push:
+    paths: ["magica-src/src/**", "magica-src/Makefile.win", ".github/workflows/magica-windows.yml"]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - name: libusb statique (>= 1.0.27 pour l'isochrone WinUSB)
+        run: |
+          curl -sL https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.tar.bz2 | tar xj
+          cd libusb-1.0.30 && ./configure -q --host=x86_64-w64-mingw32 --prefix=$PWD/../libusb-win --enable-static --disable-shared && make -s -j4 install
+      - run: make -C magica-src -f Makefile.win LIBUSB=$PWD/libusb-win
+      - uses: actions/upload-artifact@v4
+        with: { name: magica-windows, path: magica-src/magica.exe }

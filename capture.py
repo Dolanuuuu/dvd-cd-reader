@@ -1,7 +1,8 @@
 """Pipeline de capture : une source par OS, un seul ffmpeg pour l'aperçu MJPEG + l'enregistrement MP4.
 
 - macos   : magica (pilote libusb em28xx) → fifo → ffmpeg, son via AVFoundation
-- windows : ffmpeg DirectShow (pilote du boîtier installé), vidéo + son
+- windows : magica.exe (pilote WinUSB via Zadig) → TCP local → ffmpeg, son DirectShow ;
+            sinon ffmpeg DirectShow avec le pilote du fabricant (VHS_WIN_MODE=dshow pour forcer)
 - linux   : ffmpeg v4l2 (pilote noyau em28xx) + ALSA
 """
 import os
@@ -9,6 +10,7 @@ import platform
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import tempfile
 import threading
@@ -55,6 +57,25 @@ def _pick(names, env_key):
     return hits[0] if hits else None
 
 
+def _relay(proc, port):
+    """Copie la sortie de magica vers le port TCP où ffmpeg écoute."""
+    sock = None
+    for _ in range(100):  # ffmpeg met un moment à ouvrir son port
+        try:
+            sock = socket.create_connection(("127.0.0.1", port), timeout=1)
+            break
+        except OSError:
+            time.sleep(0.1)
+    if not sock:
+        return
+    try:
+        with sock:
+            while chunk := proc.stdout.read1(1 << 20):
+                sock.sendall(chunk)
+    except OSError:
+        pass  # ffmpeg s'est arrêté
+
+
 class Capture:
     """Le boîtier est exclusif : un seul pipeline à la fois, relancé à chaque début/fin d'enregistrement."""
 
@@ -88,6 +109,9 @@ class Capture:
                 args += raw + ["-f", "avfoundation", "-i", ":" + os.environ.get("VHS_AUDIO_DEVICE", "Masster AVCap")]
             return args, "1:a"
 
+        if self.backend == "windows" and _magica_path() and os.environ.get("VHS_WIN_MODE") != "dshow":
+            return self._windows_magica_inputs(with_audio)
+
         if self.backend == "windows":
             videos, audios = list_dshow_devices()
             video = _pick(videos, "VHS_VIDEO_DEVICE")
@@ -108,6 +132,25 @@ class Capture:
             args += raw + ["-f", "alsa", "-i", os.environ.get("VHS_AUDIO_DEVICE", "hw:1")]
             return args, "1:a"
         return args, None
+
+    def _windows_magica_inputs(self, with_audio):
+        """Windows n'a pas de mkfifo : magica écrit sur stdout, on relaie vers ffmpeg en TCP local."""
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        self.magica = subprocess.Popen(
+            [_magica_path(), "capture", "--input", os.environ.get("VHS_INPUT", "composite"),
+             "--std", STD, "--out", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        threading.Thread(target=_relay, args=(self.magica, port), daemon=True).start()
+        args = ["-thread_queue_size", "1024", "-f", "rawvideo", "-pixel_format", "yuyv422",
+                "-video_size", SIZE, "-framerate", FPS, "-i", f"tcp://127.0.0.1:{port}?listen=1"]
+        audio = None
+        if with_audio:
+            audio = _pick(list_dshow_devices()[1], "VHS_AUDIO_DEVICE")
+            if audio:
+                args += ["-thread_queue_size", "1024", "-f", "dshow", "-i", f"audio={audio}"]
+        return args, ("1:a" if audio else None)
 
     def _build_cmd(self, record_path):
         inputs, audio_map = self._inputs(bool(record_path))
@@ -172,7 +215,10 @@ class Capture:
     def _cleanup(self):
         # magica peut rester bloqué sur la fifo et garder le boîtier : SIGINT puis SIGKILL
         if self.magica and self.magica.poll() is None:
-            self.magica.send_signal(signal.SIGINT)
+            if IS_WINDOWS:
+                self.magica.terminate()  # pas de SIGINT vers un process console ; l'OS libère l'USB
+            else:
+                self.magica.send_signal(signal.SIGINT)
             try:
                 self.magica.wait(timeout=3)
             except subprocess.TimeoutExpired:

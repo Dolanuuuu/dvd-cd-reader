@@ -49,7 +49,14 @@ static void msleep(int ms)
 
 static uint64_t now_ns(void)
 {
+#ifdef __APPLE__
 	return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+#else
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
+#endif
 }
 
 static int usb_err(struct magica_dev *d, int ret)
@@ -751,7 +758,9 @@ static void *event_thread(void *arg)
 	struct magica_dev *d = arg;
 	struct timeval tv = { 0, 100000 };
 
+#ifdef __APPLE__
 	pthread_setname_np("magica.usb");
+#endif
 	while (d->active_xfers > 0) {
 		int ret = libusb_handle_events_timeout_completed(d->ctx, &tv, NULL);
 
